@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>投資＋動態薪資＆比例＆提款模擬器（含買房）</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; padding:20px; }
+    label { display:block; margin-top:10px; }
+    input { width:120px; margin-left:10px; }
+    button { margin-top:15px; padding:6px 12px; }
+    #summary { margin-top:20px; }
+    .chart-wrap {
+      position: relative;
+      width: 90vw; max-width:900px; height:45vh;
+      margin-top:30px;
+    }
+    .chart-wrap canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+  </style>
+</head>
+<body>
+  <h2>投資＋薪資門檻＆買房模擬器</h2>
+  <div>
+    <label>起始年齡：<input id="startAge" type="number" value="30"></label>
+    <label>退休年齡：<input id="retireAge" type="number" value="65"></label>
+    <label>起始月薪：<input id="salary" type="number" value="40000"></label>
+    <label>薪資調整頻率（年）：<input id="salaryAdjust" type="number" value="3"></label>
+    <label>基礎薪資調幅（%）：<input id="baseIncrease" type="number" value="10"></label>
+    <label>薪資≥70,000 時調幅（%）：<input id="thresh1" type="number" value="10"></label>
+    <label>薪資≥150,000 時調幅（%）：<input id="thresh2" type="number" value="3"></label>
+    <label>起始資產：<input id="initialBalance" type="number" value="0"></label>
+    <label>投資比例 年0‑2（%）：<input id="ratio0" type="number" value="25"></label>
+    <label>投資比例 年3‑5（%）：<input id="ratio1" type="number" value="30"></label>
+    <label>投資比例 年6‑8（%）：<input id="ratio2" type="number" value="35"></label>
+    <label>買房年齡：<input id="mortgageAge" type="number" value=""></label>
+    <label>房屋總價（元）：<input id="housePrice" type="number" value=""></label>
+    <label>頭期款比例（%）：<input id="downPaymentRate" type="number" value="20"></label>
+    <label>房貸利率（年%）：<input id="mortgageRate" type="number" value="2"></label>
+    <label>房貸年限（年）：<input id="mortgageYears" type="number" value="30"></label>
+    <label>買房後投資比例（%）：<input id="postMortgageInvestRatio" type="number" value="20"></label>
+    <label>年投資報酬率（%）：<input id="rate" type="number" value="6"></label>
+    <label>預估壽命（歲）：<input id="lifeExpectancy" type="number" value="90"></label>
+    <label>退休後提款率（%）：<input id="withdrawRate" type="number" value="4"></label>
+  </div>
+  <button onclick="simulate()">開始模擬</button>
+
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div id="summary"></div>
+
+  <script>
+    let chartInstance = null;
+
+    function simulate() {
+      const startAge = +document.getElementById('startAge').value;
+      const retireAge = +document.getElementById('retireAge').value;
+      let salary = +document.getElementById('salary').value;
+      const salaryAdjust = +document.getElementById('salaryAdjust').value;
+      const baseInc = +document.getElementById('baseIncrease').value / 100;
+      const thresh70Inc = +document.getElementById('thresh1').value / 100;
+      const thresh150Inc = +document.getElementById('thresh2').value / 100;
+      let balance = +document.getElementById('initialBalance').value;
+      const ratios = [
+        +document.getElementById('ratio0').value / 100,
+        +document.getElementById('ratio1').value / 100,
+        +document.getElementById('ratio2').value / 100
+      ];
+      const rate = +document.getElementById('rate').value / 100;
+      const lifeExp = +document.getElementById('lifeExpectancy').value;
+      const withdrawRate = +document.getElementById('withdrawRate').value / 100;
+
+      const mortgageAge = parseInt(document.getElementById('mortgageAge').value);
+      const hasMortgage = !isNaN(mortgageAge);
+      const housePrice = +document.getElementById('housePrice').value || 0;
+      const downPaymentRate = +document.getElementById('downPaymentRate').value / 100;
+      const mortgageRate = +document.getElementById('mortgageRate').value / 100;
+      const mortgageYears = +document.getElementById('mortgageYears').value;
+      const postMortgageInvestRatio = +document.getElementById('postMortgageInvestRatio').value / 100;
+
+      const labels = [], accum = [], remain = [];
+      const workYears = retireAge - startAge;
+      const retireYears = lifeExp - retireAge;
+
+      const mortgageStartIndex = hasMortgage ? mortgageAge - startAge : -1;
+      const loanAmount = housePrice * (1 - downPaymentRate);
+      const monthlyRate = mortgageRate / 12;
+      const n = mortgageYears * 12;
+      const monthlyPayment = hasMortgage ? (loanAmount * monthlyRate / (1 - Math.pow(1 + monthlyRate, -n))) : 0;
+
+      for (let i = 0; i <= workYears; i++) {
+        labels.push(startAge + i);
+        let period = Math.floor(i / 3);
+        let investRatio = ratios[Math.min(period, ratios.length - 1)];
+
+        if (hasMortgage && i >= mortgageStartIndex) investRatio = postMortgageInvestRatio;
+
+        if (hasMortgage && i === mortgageStartIndex) {
+          const downPayment = housePrice * downPaymentRate;
+          balance -= downPayment;
+        }
+
+        for (let m = 0; m < 12; m++) {
+          let effectiveSalary = salary;
+          if (hasMortgage && i >= mortgageStartIndex && i < mortgageStartIndex + mortgageYears) {
+            effectiveSalary -= monthlyPayment;
+          }
+          const thisMonthInvest = effectiveSalary * investRatio;
+          balance = balance * (1 + rate / 12) + thisMonthInvest;
+        }
+
+        if (i > 0 && i % salaryAdjust === 0) {
+          let inc = baseInc;
+          if (salary >= 150000) inc = thresh150Inc;
+          else if (salary >= 70000) inc = thresh70Inc;
+          salary *= 1 + inc;
+        }
+
+        accum.push(Math.round(balance));
+        remain.push(null);
+      }
+
+      for (let j = 1; j <= retireYears; j++) {
+        labels.push(retireAge + j);
+        const annualWithdraw = balance * withdrawRate;
+        const monthlyWithdraw = annualWithdraw / 12;
+        for (let m = 0; m < 12; m++) {
+          balance = balance * (1 + rate / 12) - monthlyWithdraw;
+        }
+        accum.push(null);
+        remain.push(Math.round(balance));
+      }
+
+      const cfg = {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: '累積資產（工作）', data: accum, borderColor: 'teal', spanGaps: true, tension: 0.3 },
+            { label: '退休後剩餘（提款）', data: remain, borderColor: 'crimson', spanGaps: true, tension: 0.3 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false }
+        }
+      };
+
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(document.getElementById('chart').getContext('2d'), cfg);
+
+      const withdrawYear1 = Math.round(accum[accum.length - retireYears - 1] * withdrawRate);
+      const finalBal = remain[remain.length - 1];
+
+      document.getElementById('summary').innerHTML = `
+        <strong>退休首年提款：</strong>${withdrawYear1.toLocaleString()} 元／年<br>
+        <strong>預估 ${lifeExp} 歲時剩餘：</strong>${finalBal.toLocaleString()} 元<br>
+        ${hasMortgage ? `<strong>房貸月付金：</strong>${Math.round(monthlyPayment).toLocaleString()} 元，共 ${mortgageYears} 年` : ''}
+      `;
+    }
+
+    document.addEventListener('DOMContentLoaded', simulate);
+  </script>
+</body>
+</html>
